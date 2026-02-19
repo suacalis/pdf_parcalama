@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Sayfa Kesici</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#08080f;--surface:#111119;--surface2:#181826;--surface3:#1e1e30;
+  --accent:#ff4d6d;--accent2:#4dffb4;--accent3:#ffd166;
+  --text:#e8e8f2;--muted:#6a6a84;--border:#22223a;
+}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(77,255,180,.02) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(77,255,180,.02) 1px,transparent 1px);
+  background-size:44px 44px;
+}
+.wrap{position:relative;max-width:1100px;margin:0 auto;padding:32px 18px 80px;}
+
+/* Header */
+header{text-align:center;margin-bottom:32px;}
+.brand{display:inline-flex;align-items:center;gap:12px;margin-bottom:10px;}
+.brand-icon{width:46px;height:46px;background:linear-gradient(135deg,var(--accent),#ff8fa3);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:21px;box-shadow:0 0 28px rgba(255,77,109,.4);}
+h1{font-size:clamp(22px,4vw,40px);font-weight:800;letter-spacing:-1px;}
+h1 em{font-style:normal;color:var(--accent);}
+.tagline{margin-top:6px;color:var(--muted);font-family:'Space Mono',monospace;font-size:11px;}
+
+/* Upload */
+.upload-zone{
+  border:2px dashed var(--border);border-radius:16px;padding:38px 22px;
+  text-align:center;cursor:pointer;transition:all .22s;background:var(--surface);margin-bottom:18px;
+}
+.upload-zone:hover,.upload-zone.over{border-color:var(--accent);background:var(--surface2);box-shadow:0 0 32px rgba(255,77,109,.1);}
+.upload-icon{font-size:38px;display:block;margin-bottom:10px;}
+.upload-zone h3{font-size:16px;font-weight:600;margin-bottom:4px;}
+.upload-zone p{color:var(--muted);font-size:11px;font-family:'Space Mono',monospace;}
+#fileInput{display:none;}
+
+.file-list{display:flex;flex-direction:column;gap:7px;margin-bottom:18px;}
+.file-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;animation:slideIn .2s ease;}
+@keyframes slideIn{from{opacity:0;transform:translateX(-10px);}to{opacity:1;transform:none;}}
+.fi-icon{font-size:19px;}
+.fi-info{flex:1;min-width:0;}
+.fi-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.fi-meta{font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;}
+.fi-rm{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:3px 7px;border-radius:5px;transition:all .15s;}
+.fi-rm:hover{color:var(--accent);background:rgba(255,77,109,.1);}
+
+/* Main editor layout */
+.editor{display:none;gap:16px;}
+.editor.visible{display:grid;grid-template-columns:140px 1fr;}
+
+/* Thumbnail sidebar */
+.thumb-sidebar{display:flex;flex-direction:column;gap:8px;}
+.thumb-sidebar-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);font-family:'Space Mono',monospace;margin-bottom:2px;}
+.thumb-scroll{display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto;padding-right:4px;}
+.thumb-scroll::-webkit-scrollbar{width:4px;}
+.thumb-scroll::-webkit-scrollbar-track{background:transparent;}
+.thumb-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.thumb-item{
+  position:relative;cursor:pointer;border-radius:8px;overflow:hidden;
+  border:2px solid var(--border);transition:all .18s;background:var(--surface2);
+  flex-shrink:0;
+}
+.thumb-item:hover{border-color:var(--muted);}
+.thumb-item.active{border-color:var(--accent2);box-shadow:0 0 12px rgba(77,255,180,.25);}
+.thumb-item.modified{border-color:var(--accent3) !important;}
+.thumb-item canvas{display:block;width:100%;height:auto;}
+.thumb-num{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(0,0,0,.65);font-size:9px;text-align:center;
+  font-family:'Space Mono',monospace;color:var(--text);padding:2px 0;
+}
+.thumb-badge{
+  position:absolute;top:3px;right:3px;width:8px;height:8px;
+  border-radius:50%;background:var(--accent3);display:none;
+}
+.thumb-item.modified .thumb-badge{display:block;}
+
+/* Editor right panel */
+.editor-right{display:flex;flex-direction:column;gap:14px;}
+
+/* Page header */
+.page-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.page-nav-btn{
+  background:none;border:1px solid var(--border);color:var(--muted);
+  font-size:14px;padding:5px 12px;border-radius:8px;cursor:pointer;transition:all .15s;
+}
+.page-nav-btn:hover:not(:disabled){color:var(--text);border-color:var(--muted);}
+.page-nav-btn:disabled{opacity:.3;cursor:not-allowed;}
+.page-info{font-size:13px;font-family:'Space Mono',monospace;color:var(--accent2);flex:1;text-align:center;}
+.modified-badge{
+  font-size:10px;background:rgba(255,209,102,.15);color:var(--accent3);
+  border:1px solid rgba(255,209,102,.3);border-radius:6px;padding:2px 8px;
+  font-family:'Space Mono',monospace;
+}
+
+/* Panel */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;}
+.panel-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);font-family:'Space Mono',monospace;margin-bottom:14px;}
+
+/* Cut controls */
+.cut-controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.cut-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:9px;font-family:'Syne',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .18s;border:none;}
+.cut-btn.v{background:rgba(255,77,109,.12);color:var(--accent);border:1px solid rgba(255,77,109,.3);}
+.cut-btn.v:hover{background:rgba(255,77,109,.22);}
+.cut-btn.h{background:rgba(255,209,102,.1);color:var(--accent3);border:1px solid rgba(255,209,102,.3);}
+.cut-btn.h:hover{background:rgba(255,209,102,.2);}
+.cut-btn.grid{background:rgba(77,255,180,.08);color:var(--accent2);border:1px solid rgba(77,255,180,.25);}
+.cut-btn.grid:hover{background:rgba(77,255,180,.16);}
+.cut-btn.clr{background:rgba(255,255,255,.04);color:var(--muted);border:1px solid var(--border);}
+.cut-btn.clr:hover{color:var(--text);background:rgba(255,255,255,.08);}
+.cut-btn.apply-all{background:rgba(255,209,102,.08);color:var(--accent3);border:1px solid rgba(255,209,102,.25);}
+.cut-btn.apply-all:hover{background:rgba(255,209,102,.18);}
+
+.lines-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px;}
+.line-item{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);font-size:11px;font-family:'Space Mono',monospace;}
+.line-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.line-dot.v{background:var(--accent);}
+.line-dot.h{background:var(--accent3);}
+.line-lbl{width:36px;color:var(--muted);}
+.line-slider{flex:1;-webkit-appearance:none;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer;}
+.line-slider.v::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:pointer;}
+.line-slider.h::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--accent3);border-radius:50%;cursor:pointer;}
+.line-val{min-width:34px;text-align:right;color:var(--muted);}
+.line-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:4px;transition:all .15s;}
+.line-del:hover{color:var(--accent);background:rgba(255,77,109,.1);}
+.no-lines{font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;}
+
+/* Order */
+.order-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.order-opt{display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 6px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all .18s;background:var(--surface2);}
+.order-opt:hover{border-color:var(--muted);}
+.order-opt.active{border-color:var(--accent2);background:rgba(77,255,180,.06);}
+.gp{display:grid;grid-template-columns:1fr 1fr;gap:2px;width:36px;height:36px;}
+.gp-c{background:var(--border);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;font-family:'Space Mono',monospace;color:var(--muted);}
+.gp-c.hi{background:rgba(77,255,180,.2);color:var(--accent2);}
+.order-lbl{font-size:9px;font-weight:600;color:var(--muted);text-align:center;font-family:'Space Mono',monospace;line-height:1.3;}
+.order-opt.active .order-lbl{color:var(--accent2);}
+
+/* Preview canvas */
+.canvas-wrap{position:relative;display:inline-block;border:1px solid var(--border);border-radius:10px;overflow:hidden;max-width:100%;cursor:crosshair;}
+#previewCanvas{display:block;max-width:100%;max-height:360px;}
+.cut-line-ov{position:absolute;pointer-events:all;}
+.cut-line-ov.v{top:0;bottom:0;width:3px;background:var(--accent);box-shadow:0 0 8px var(--accent);cursor:ew-resize;transform:translateX(-50%);}
+.cut-line-ov.h{left:0;right:0;height:3px;background:var(--accent3);box-shadow:0 0 8px var(--accent3);cursor:ns-resize;transform:translateY(-50%);}
+.prev-hint{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:6px;}
+
+/* Go button & progress & result */
+.go-btn{width:100%;padding:15px;border:none;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ff8fa3);color:#fff;font-family:'Syne',sans-serif;font-size:16px;font-weight:700;cursor:pointer;transition:all .28s;margin-top:6px;}
+.go-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 32px rgba(255,77,109,.4);}
+.go-btn:disabled{opacity:.35;cursor:not-allowed;}
+.prog-wrap{display:none;margin-top:10px;}
+.prog-wrap.visible{display:block;}
+.prog-track{background:var(--surface);border:1px solid var(--border);border-radius:7px;overflow:hidden;height:8px;}
+.prog-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:7px;transition:width .28s;}
+.prog-lbl{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;text-align:center;margin-top:5px;}
+.result{display:none;text-align:center;padding:26px 18px;background:var(--surface);border:1px solid var(--accent2);border-radius:16px;margin-top:12px;}
+.result.visible{display:block;animation:pop .35s ease;}
+@keyframes pop{from{opacity:0;transform:scale(.95);}to{opacity:1;transform:scale(1);}}
+.result h3{font-size:20px;color:var(--accent2);margin-bottom:6px;}
+.result p{color:var(--muted);font-size:11px;font-family:'Space Mono',monospace;margin-bottom:16px;}
+.dl-btn{display:inline-flex;align-items:center;gap:8px;padding:11px 26px;border:2px solid var(--accent2);border-radius:11px;color:var(--accent2);font-family:'Syne',sans-serif;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;background:none;transition:all .25s;}
+.dl-btn:hover{background:var(--accent2);color:var(--bg);box-shadow:0 0 24px rgba(77,255,180,.28);transform:translateY(-2px);}
+
+.c-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;}
+.c-row input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;}
+.c-row label{font-size:12px;color:var(--muted);cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <div class="brand-icon">✂️</div>
+    <h1>PDF Sayfa <em>Kesici</em></h1>
+  </div>
+  <p class="tagline">// Her sayfa için ayrı kesim ayarı · Dikey · Yatay · Grid · 4 sıra modu</p>
+</header>
+
+<!-- Upload -->
+<div class="upload-zone" id="uploadZone">
+  <span class="upload-icon">📂</span>
+  <h3>PDF Dosyalarını Sürükle &amp; Bırak</h3>
+  <p>veya tıklayarak seç · çoklu dosya desteklenir</p>
+  <input type="file" id="fileInput" accept=".pdf" multiple>
+</div>
+<div class="file-list" id="fileList"></div>
+
+<!-- Editor -->
+<div class="editor" id="editor">
+
+  <!-- Thumbnail sidebar -->
+  <div class="thumb-sidebar">
+    <div class="thumb-sidebar-title">Sayfalar</div>
+    <div class="thumb-scroll" id="thumbScroll"></div>
+  </div>
+
+  <!-- Right side -->
+  <div class="editor-right">
+
+    <!-- Page nav -->
+    <div class="panel" style="padding:14px 18px;">
+      <div class="page-nav">
+        <button class="page-nav-btn" id="prevPageBtn">◀</button>
+        <span class="page-info" id="pageInfo">Sayfa 1 / 1</span>
+        <button class="page-nav-btn" id="nextPageBtn">▶</button>
+        <span class="modified-badge" id="modBadge" style="display:none;">✎ Özelleştirildi</span>
+        <button class="cut-btn clr" id="resetPageBtn" style="margin-left:auto;font-size:11px;">↺ Bu sayfayı sıfırla</button>
+      </div>
+    </div>
+
+    <!-- Cut lines -->
+    <div class="panel">
+      <div class="panel-title">✂ Kesim Çizgileri</div>
+      <div class="cut-controls">
+        <button class="cut-btn v" id="addVBtn">＋ Dikey</button>
+        <button class="cut-btn h" id="addHBtn">＋ Yatay</button>
+        <button class="cut-btn grid" id="addGridBtn">⊞ Grid 2×2</button>
+        <button class="cut-btn clr" id="clearBtn">✕ Temizle</button>
+        <button class="cut-btn apply-all" id="applyAllBtn">⊙ Tüm Sayfalara Uygula</button>
+      </div>
+      <div class="lines-list" id="linesList"></div>
+    </div>
+
+    <!-- Cut order -->
+    <div class="panel">
+      <div class="panel-title">↕ Kesim Sırası</div>
+      <div class="order-grid" id="orderGrid">
+        <div class="order-opt active" data-order="horizontal">
+          <div class="gp"><div class="gp-c hi">1</div><div class="gp-c hi">2</div><div class="gp-c">3</div><div class="gp-c">4</div></div>
+          <span class="order-lbl">Yatay<br>satır satır</span>
+        </div>
+        <div class="order-opt" data-order="vertical">
+          <div class="gp"><div class="gp-c hi">1</div><div class="gp-c">3</div><div class="gp-c hi">2</div><div class="gp-c">4</div></div>
+          <span class="order-lbl">Dikey<br>sütun sütun</span>
+        </div>
+        <div class="order-opt" data-order="first-last">
+          <div class="gp"><div class="gp-c hi">1</div><div class="gp-c">Son</div><div class="gp-c" style="grid-column:span 2;"></div></div>
+          <span class="order-lbl">İlk-Son<br>2-up</span>
+        </div>
+        <div class="order-opt" data-order="last-first">
+          <div class="gp"><div class="gp-c">Son</div><div class="gp-c hi">1</div><div class="gp-c" style="grid-column:span 2;"></div></div>
+          <span class="order-lbl">Son-İlk<br>2-up</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="panel">
+      <div class="panel-title">👁 Önizleme</div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="previewCanvas"></canvas>
+      </div>
+      <p class="prev-hint">Çizgileri fare ile sürükleyebilir, kaydırıcıyla hassas ayar yapabilirsiniz.</p>
+    </div>
+
+    <!-- Other settings -->
+    <div class="panel">
+      <div class="panel-title">⚙ Diğer</div>
+      <div class="c-row">
+        <input type="checkbox" id="keepOrig">
+        <label for="keepOrig">Orijinal sayfayı da dahil et (bölünmüş sayfalardan önce)</label>
+      </div>
+    </div>
+
+    <!-- Process -->
+    <button class="go-btn" id="goBtn">✂️ &nbsp; Kes ve Birleştir</button>
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-lbl" id="progLbl"></div>
+    </div>
+    <div class="result" id="result">
+      <h3>✅ Tamamlandı!</h3>
+      <p id="resultInfo">—</p>
+      <a class="dl-btn" id="dlBtn" href="#" download="kesilmis.pdf">⬇️ &nbsp; PDF'i İndir</a>
+    </div>
+
+  </div>
+</div>
+
+</div>
+<script>
+(function(){
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const $  = id => document.getElementById(id);
+  const el = (tag, cls) => { const e = document.createElement(tag); if(cls) e.className=cls; return e; };
+
+  // ── Global State ──
+  let files = [];
+  let allPages = [];    // [{fileIdx, pageIdx, pdfDoc (pdfjs)}]
+  let pageSettings = []; // per-page: {lines:[{id,type,pos}], order:'horizontal'}
+  let defaultSettings = { lines:[], order:'horizontal' };
+  let currentPage = 0;   // index into allPages
+  let idCounter = 0;
+  let pdfJsDocs = [];    // loaded pdfjs docs for thumbnail/preview
+
+  // ── Upload ──
+  const uploadZone = $('uploadZone');
+  $('fileInput').addEventListener('change', e => addFiles([...e.target.files]));
+  uploadZone.addEventListener('click', () => $('fileInput').click());
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('over'));
+  uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('over'); addFiles([...e.dataTransfer.files].filter(f=>f.type==='application/pdf')); });
+
+  async function addFiles(list) {
+    for (const f of list) {
+      if (!files.some(x=>x.name===f.name&&x.size===f.size)) {
+        files.push(f);
+        try {
+          const ab = await f.arrayBuffer();
+          const doc = await pdfjsLib.getDocument({ data: ab }).promise;
+          pdfJsDocs.push(doc);
+          const fileIdx = files.length - 1;
+          for (let pi = 0; pi < doc.numPages; pi++) {
+            allPages.push({ fileIdx, pageIdx: pi, docRef: doc });
+            pageSettings.push(null); // null = use default
+          }
+        } catch(e) { console.warn(e); }
+      }
+    }
+    renderFileList();
+    if (allPages.length > 0) {
+      $('editor').classList.add('visible');
+      await buildThumbs();
+      await selectPage(0);
+    }
+  }
+
+  function renderFileList() {
+    const el2 = $('fileList');
+    el2.innerHTML = '';
+    files.forEach((f, i) => {
+      const mb = (f.size/1048576).toFixed(2);
+      const d = document.createElement('div');
+      d.className = 'file-item';
+      d.innerHTML = `<span class="fi-icon">📄</span>
+        <div class="fi-info"><div class="fi-name">${f.name}</div><div class="fi-meta">${mb} MB</div></div>`;
+      el2.appendChild(d);
+    });
+  }
+
+  // ── Thumbnails ──
+  async function buildThumbs() {
+    const scroll = $('thumbScroll');
+    scroll.innerHTML = '';
+    for (let i = 0; i < allPages.length; i++) {
+      const { docRef, pageIdx } = allPages[i];
+      const wrapper = document.createElement('div');
+      wrapper.className = 'thumb-item' + (i===currentPage?' active':'') + (pageSettings[i]?' modified':'');
+      wrapper.dataset.idx = i;
+      const cvs = document.createElement('canvas');
+      const badge = document.createElement('div');
+      badge.className = 'thumb-badge';
+      const num = document.createElement('div');
+      num.className = 'thumb-num';
+      num.textContent = `S.${i+1}`;
+      wrapper.appendChild(cvs);
+      wrapper.appendChild(badge);
+      wrapper.appendChild(num);
+      scroll.appendChild(wrapper);
+      wrapper.addEventListener('click', () => selectPage(i));
+      // Render thumb async
+      (async () => {
+        try {
+          const page = await docRef.getPage(pageIdx+1);
+          const vp = page.getViewport({scale:1});
+          const scale = 120/vp.width;
+          const svp = page.getViewport({scale});
+          cvs.width = svp.width; cvs.height = svp.height;
+          await page.render({canvasContext:cvs.getContext('2d'),viewport:svp}).promise;
+        } catch(e){}
+      })();
+    }
+  }
+
+  function updateThumbStates() {
+    $('thumbScroll').querySelectorAll('.thumb-item').forEach((el2,i) => {
+      el2.classList.toggle('active', i===currentPage);
+      el2.classList.toggle('modified', !!pageSettings[i]);
+    });
+  }
+
+  // ── Page Selection ──
+  async function selectPage(idx) {
+    currentPage = idx;
+    updateThumbStates();
+    // Scroll thumb into view
+    const thumbEl = $('thumbScroll').children[idx];
+    if (thumbEl) thumbEl.scrollIntoView({block:'nearest',behavior:'smooth'});
+    // Update nav
+    $('pageInfo').textContent = `Sayfa ${idx+1} / ${allPages.length}`;
+    $('prevPageBtn').disabled = idx===0;
+    $('nextPageBtn').disabled = idx===allPages.length-1;
+    // Show/hide modified badge & reset button
+    const isModified = !!pageSettings[idx];
+    $('modBadge').style.display = isModified ? '' : 'none';
+    // Load order UI from current page settings
+    const settings = getEffectiveSettings(idx);
+    loadOrderUI(settings.order);
+    // Render preview
+    await renderPreview(idx, settings);
+    renderLinesList(settings.lines, idx);
+  }
+
+  function getEffectiveSettings(idx) {
+    // Deep clone so mutations don't affect stored settings unintentionally
+    const src = pageSettings[idx] || defaultSettings;
+    return {
+      lines: src.lines.map(l => ({...l})),
+      order: src.order
+    };
+  }
+
+  function getCurrentLiveSettings() {
+    // Read from UI state (lines from linesList sliders, order from orderGrid)
+    return {
+      lines: currentLines.map(l => ({...l})),
+      order: currentOrder
+    };
+  }
+
+  // ── Live editing state (for current page in editor) ──
+  let currentLines = [];
+  let currentOrder = 'horizontal';
+
+  function saveCurrentToPage(idx) {
+    const settings = getCurrentLiveSettings();
+    // Check if same as default
+    const sameAsDefault = JSON.stringify(settings) === JSON.stringify(defaultSettings);
+    pageSettings[idx] = sameAsDefault ? null : settings;
+    updateThumbStates();
+    $('modBadge').style.display = !!pageSettings[idx] ? '' : 'none';
+  }
+
+  // ── Order UI ──
+  document.querySelectorAll('.order-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.order-opt').forEach(o=>o.classList.remove('active'));
+      opt.classList.add('active');
+      currentOrder = opt.dataset.order;
+      saveCurrentToPage(currentPage);
+    });
+  });
+
+  function loadOrderUI(order) {
+    currentOrder = order;
+    document.querySelectorAll('.order-opt').forEach(o => o.classList.toggle('active', o.dataset.order===order));
+  }
+
+  // ── Cut Line Operations ──
+  $('addVBtn').addEventListener('click', () => { addLine('v', 0.5); });
+  $('addHBtn').addEventListener('click', () => { addLine('h', 0.5); });
+  $('addGridBtn').addEventListener('click', () => { currentLines=[]; addLine('v',0.5); addLine('h',0.5); });
+  $('clearBtn').addEventListener('click', () => { currentLines=[]; renderLinesList(currentLines,currentPage); renderCanvasLines(); saveCurrentToPage(currentPage); });
+
+  $('applyAllBtn').addEventListener('click', () => {
+    const settings = getCurrentLiveSettings();
+    // Set as default
+    defaultSettings = { lines: settings.lines.map(l=>({...l})), order: settings.order };
+    // Apply to ALL pages (clear per-page overrides)
+    for (let i=0; i<allPages.length; i++) pageSettings[i] = null;
+    updateThumbStates();
+    alert(`✅ ${allPages.length} sayfanın tümüne uygulandı. Artık istediğiniz sayfayı seçip özelleştirebilirsiniz.`);
+  });
+
+  $('resetPageBtn').addEventListener('click', () => {
+    pageSettings[currentPage] = null;
+    const settings = getEffectiveSettings(currentPage);
+    currentLines = settings.lines.map(l=>({...l}));
+    currentOrder = settings.order;
+    loadOrderUI(currentOrder);
+    renderLinesList(currentLines, currentPage);
+    renderCanvasLines();
+    updateThumbStates();
+    $('modBadge').style.display = 'none';
+  });
+
+  $('prevPageBtn').addEventListener('click', () => { if(currentPage>0) { saveCurrentToPage(currentPage); selectPage(currentPage-1); } });
+  $('nextPageBtn').addEventListener('click', () => { if(currentPage<allPages.length-1) { saveCurrentToPage(currentPage); selectPage(currentPage+1); } });
+
+  function addLine(type, pos) {
+    const id = ++idCounter;
+    currentLines.push({id, type, pos});
+    renderLinesList(currentLines, currentPage);
+    renderCanvasLines();
+    saveCurrentToPage(currentPage);
+  }
+
+  function renderLinesList(lines, pageIdx) {
+    currentLines = lines;
+    const el2 = $('linesList');
+    el2.innerHTML = '';
+    if (!lines.length) {
+      el2.innerHTML = '<div class="no-lines">Çizgi yok. Yukarıdan ekleyin.</div>';
+      return;
+    }
+    lines.forEach(line => {
+      const pct = Math.round(line.pos*100);
+      const d = document.createElement('div');
+      d.className = 'line-item';
+      d.innerHTML = `
+        <div class="line-dot ${line.type}"></div>
+        <span class="line-lbl">${line.type==='v'?'Dikey':'Yatay'}</span>
+        <input class="line-slider ${line.type}" type="range" min="5" max="95" value="${pct}" data-id="${line.id}">
+        <span class="line-val" id="lv${line.id}">${pct}%</span>
+        <button class="line-del" data-id="${line.id}">✕</button>`;
+      el2.appendChild(d);
+    });
+    el2.querySelectorAll('.line-slider').forEach(sl => {
+      sl.addEventListener('input', () => {
+        const id = +sl.dataset.id;
+        const l = currentLines.find(x=>x.id===id);
+        if(l){ l.pos=sl.value/100; $('lv'+id).textContent=sl.value+'%'; renderCanvasLines(); saveCurrentToPage(currentPage); }
+      });
+    });
+    el2.querySelectorAll('.line-del').forEach(b => {
+      b.addEventListener('click', () => {
+        currentLines = currentLines.filter(l=>l.id!==+b.dataset.id);
+        renderLinesList(currentLines, currentPage);
+        renderCanvasLines();
+        saveCurrentToPage(currentPage);
+      });
+    });
+  }
+
+  // ── Preview ──
+  async function renderPreview(idx, settings) {
+    const { docRef, pageIdx } = allPages[idx];
+    try {
+      const page = await docRef.getPage(pageIdx+1);
+      const vp = page.getViewport({scale:1});
+      const scale = Math.min(700/vp.width, 360/vp.height);
+      const svp = page.getViewport({scale});
+      const cvs = $('previewCanvas');
+      cvs.width=svp.width; cvs.height=svp.height;
+      await page.render({canvasContext:cvs.getContext('2d'),viewport:svp}).promise;
+      currentLines = settings.lines.map(l=>({...l}));
+      renderCanvasLines();
+    } catch(e){ console.warn(e); }
+  }
+
+  function renderCanvasLines() {
+    const wrap = $('canvasWrap');
+    wrap.querySelectorAll('.cut-line-ov').forEach(e=>e.remove());
+    const W = $('previewCanvas').offsetWidth;
+    const H = $('previewCanvas').offsetHeight;
+    if(!W||!H) return;
+    currentLines.forEach(line => {
+      const div = document.createElement('div');
+      div.className = `cut-line-ov ${line.type}`;
+      div.dataset.id = line.id;
+      div.style[line.type==='v'?'left':'top'] = ((line.type==='v'?W:H)*line.pos)+'px';
+      wrap.appendChild(div);
+    });
+    setupDrag();
+  }
+
+  window.addEventListener('resize', () => { if(allPages.length) renderCanvasLines(); });
+
+  function setupDrag() {
+    const wrap = $('canvasWrap');
+    let dragging = null;
+    wrap.querySelectorAll('.cut-line-ov').forEach(el2 => {
+      el2.addEventListener('mousedown', e => { dragging=el2; e.preventDefault(); });
+    });
+    const onMove = e => {
+      if(!dragging) return;
+      const id = +dragging.dataset.id;
+      const line = currentLines.find(l=>l.id===id);
+      if(!line) return;
+      const rect = wrap.getBoundingClientRect();
+      if(line.type==='v'){
+        const x = Math.max(0,Math.min(e.clientX-rect.left,rect.width));
+        line.pos = Math.max(0.05,Math.min(0.95,x/rect.width));
+        dragging.style.left = (rect.width*line.pos)+'px';
+      } else {
+        const y = Math.max(0,Math.min(e.clientY-rect.top,rect.height));
+        line.pos = Math.max(0.05,Math.min(0.95,y/rect.height));
+        dragging.style.top = (rect.height*line.pos)+'px';
+      }
+    };
+    const onUp = () => {
+      if(dragging){ dragging=null; renderLinesList(currentLines,currentPage); saveCurrentToPage(currentPage); }
+    };
+    document.removeEventListener('mousemove', wrap._moveHandler);
+    document.removeEventListener('mouseup', wrap._upHandler);
+    wrap._moveHandler = onMove; wrap._upHandler = onUp;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── Processing ──
+  $('goBtn').addEventListener('click', processPDFs);
+
+  function setP(pct,msg){ $('progFill').style.width=pct+'%'; $('progLbl').textContent=msg; }
+
+  function getOrderedCells(vBounds, hBounds, order) {
+    const nC = vBounds.length-1, nR = hBounds.length-1;
+    const cells = [];
+    for(let r=0;r<nR;r++) for(let c=0;c<nC;c++) cells.push({r,c});
+    if(order==='horizontal') cells.sort((a,b)=>a.r!==b.r?a.r-b.r:a.c-b.c);
+    else if(order==='vertical') cells.sort((a,b)=>a.c!==b.c?a.c-b.c:a.r-b.r);
+    else if(order==='first-last'&&cells.length===2) cells.sort((a,b)=>(a.r*nC+a.c)-(b.r*nC+b.c));
+    else if(order==='last-first'&&cells.length===2) cells.sort((a,b)=>(b.r*nC+b.c)-(a.r*nC+a.c));
+    return cells;
+  }
+
+  async function processPDFs() {
+    // Save current page state before processing
+    saveCurrentToPage(currentPage);
+
+    $('goBtn').disabled = true;
+    $('result').classList.remove('visible');
+    $('progWrap').classList.add('visible');
+    setP(0,'Başlatılıyor...');
+
+    try {
+      const { PDFDocument } = PDFLib;
+      const outDoc = await PDFDocument.create();
+      const keepOrig = $('keepOrig').checked;
+
+      // Load pdf-lib docs
+      const libDocs = [];
+      for(let i=0;i<files.length;i++){
+        setP(Math.round(i/files.length*10), `Yükleniyor: ${files[i].name}`);
+        const ab = await files[i].arrayBuffer();
+        libDocs.push(await PDFDocument.load(ab));
+      }
+
+      const total = allPages.length;
+      let done = 0;
+
+      for(let gi=0;gi<allPages.length;gi++){
+        const { fileIdx, pageIdx } = allPages[gi];
+        setP(10+Math.round(done/total*85), `Bölünüyor: Sayfa ${gi+1}/${total}`);
+
+        const settings = pageSettings[gi] || defaultSettings;
+        const lines = settings.lines;
+        const order = settings.order;
+
+        if(!lines.length){
+          // No cut lines → copy page as-is
+          const [p] = await outDoc.copyPages(libDocs[fileIdx],[pageIdx]);
+          outDoc.addPage(p);
+          done++; continue;
+        }
+
+        const vSorted = lines.filter(l=>l.type==='v').map(l=>l.pos).sort((a,b)=>a-b);
+        const hSorted = lines.filter(l=>l.type==='h').map(l=>l.pos).sort((a,b)=>a-b);
+        const vB = [0,...vSorted,1];
+        const hB = [0,...hSorted,1];
+        const cells = getOrderedCells(vB, hB, order);
+
+        const srcPage = libDocs[fileIdx].getPage(pageIdx);
+        const mb2 = srcPage.getMediaBox();
+        const PW=mb2.width,PH=mb2.height,ox=mb2.x,oy=mb2.y;
+
+        if(keepOrig){
+          const [op] = await outDoc.copyPages(libDocs[fileIdx],[pageIdx]);
+          outDoc.addPage(op);
+        }
+
+        for(const {r,c} of cells){
+          const xL=ox+vB[c]*PW, xR=ox+vB[c+1]*PW;
+          const yBot=oy+(1-hB[r+1])*PH, yTop=oy+(1-hB[r])*PH;
+          const [p] = await outDoc.copyPages(libDocs[fileIdx],[pageIdx]);
+          p.setMediaBox(xL,yBot,xR,yTop);
+          p.setCropBox(xL,yBot,xR,yTop);
+          outDoc.addPage(p);
+        }
+        done++;
+      }
+
+      setP(97,'PDF oluşturuluyor...');
+      const bytes = await outDoc.save();
+      const url = URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
+      setP(100,'Tamamlandı!');
+
+      $('dlBtn').href = url;
+      const mb3 = (bytes.length/1048576).toFixed(2);
+      const customCount = pageSettings.filter(s=>s!==null).length;
+      $('resultInfo').textContent =
+        `${total} sayfa işlendi · ${customCount} sayfa özelleştirildi · ${mb3} MB`;
+      $('result').classList.add('visible');
+      $('result').scrollIntoView({behavior:'smooth',block:'nearest'});
+
+    } catch(err){
+      setP(0,'❌ Hata: '+err.message);
+      console.error(err);
+    } finally {
+      $('goBtn').disabled = false;
+    }
+  }
+
+  // Init
+  renderLinesList([], 0);
+})();
+</script>
+</body>
+</html>
